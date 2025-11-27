@@ -65,30 +65,29 @@
   })();
 
   function attachUI(){
-    filePickBtn.addEventListener('click',()=>fileInput.click());
-    fileInput.addEventListener('change',handleFiles);
-    ['dragenter','dragover'].forEach(ev=>dropZone.addEventListener(ev,e=>{e.preventDefault();dropZone.classList.add('drag')}));
-    ['dragleave','drop'].forEach(ev=>dropZone.addEventListener(ev,e=>{e.preventDefault();dropZone.classList.remove('drag')}));
-    dropZone.addEventListener('drop',e=>{handleFiles({target:{files:e.dataTransfer.files}})});
-    createCardBtn.addEventListener('click',createCardFromInput);
-    startWriteBtn.addEventListener('click',startWriteFlow);
-    scanBtn.addEventListener('click',startScan);
-    const testTagBtn = document.getElementById('testTagBtn'); if(testTagBtn) testTagBtn.addEventListener('click',startTestTag);
-    playBtn.addEventListener('click',togglePlay);
-    prevBtn.addEventListener('click',playPrev);
-    nextBtn.addEventListener('click',playNext);
-    audio.addEventListener('ended',onTrackEnded);
-    audio.addEventListener('timeupdate',updateSeek);
-    seek.addEventListener('input',onSeek);
-    volume.addEventListener('input',onVolumeChange);
-    darkToggle.addEventListener('click',toggleDark);
-    // Deep link overlay play button
-    const deepPlayBtn = document.getElementById('deepPlayBtn'); if(deepPlayBtn) deepPlayBtn.addEventListener('click',async ()=>{ try{ await audio.play(); hideDeepPlayOverlay(); }catch(e){ /* user needs to interact */ } });
-    // NFC debug UI (open overlay and populate info)
-    const nfcDebugBtn = document.getElementById('nfcDebugBtn');
-    if(nfcDebugBtn) nfcDebugBtn.addEventListener('click',openNfcDebug);
-    const closeDebug = document.getElementById('closeNfcDebug'); if(closeDebug) closeDebug.addEventListener('click',closeNfcDebug);
-    const tryConstruct = document.getElementById('tryConstructNdef'); if(tryConstruct) tryConstruct.addEventListener('click',tryConstructNdef);
+    try{
+      if(filePickBtn) filePickBtn.addEventListener('click',()=>fileInput && fileInput.click());
+      if(fileInput) fileInput.addEventListener('change',handleFiles);
+      if(dropZone){ ['dragenter','dragover'].forEach(ev=>dropZone.addEventListener(ev,e=>{e.preventDefault();dropZone.classList.add('drag')})); ['dragleave','drop'].forEach(ev=>dropZone.addEventListener(ev,e=>{e.preventDefault();dropZone.classList.remove('drag')})); dropZone.addEventListener('drop',e=>{handleFiles({target:{files:e.dataTransfer.files}})}); }
+      if(createCardBtn) createCardBtn.addEventListener('click',createCardFromInput);
+      if(startWriteBtn) startWriteBtn.addEventListener('click',startWriteFlow);
+      if(scanBtn) scanBtn.addEventListener('click',startScan);
+      const testTagBtn = document.getElementById('testTagBtn'); if(testTagBtn) testTagBtn.addEventListener('click',startTestTag);
+      if(playBtn) playBtn.addEventListener('click',togglePlay);
+      if(prevBtn) prevBtn.addEventListener('click',playPrev);
+      if(nextBtn) nextBtn.addEventListener('click',playNext);
+      if(audio) { audio.addEventListener('ended',onTrackEnded); audio.addEventListener('timeupdate',updateSeek); }
+      if(seek) seek.addEventListener('input',onSeek);
+      if(volume) volume.addEventListener('input',onVolumeChange);
+      if(darkToggle) darkToggle.addEventListener('click',toggleDark);
+      // Deep link overlay play button
+      const deepPlayBtn = document.getElementById('deepPlayBtn'); if(deepPlayBtn) deepPlayBtn.addEventListener('click',async ()=>{ try{ await audio.play(); hideDeepPlayOverlay(); }catch(e){ /* user needs to interact */ } });
+      // NFC debug UI (open overlay and populate info)
+      const nfcDebugBtn = document.getElementById('nfcDebugBtn');
+      if(nfcDebugBtn) nfcDebugBtn.addEventListener('click',openNfcDebug);
+      const closeDebug = document.getElementById('closeNfcDebug'); if(closeDebug) closeDebug.addEventListener('click',closeNfcDebug);
+      const tryConstruct = document.getElementById('tryConstructNdef'); if(tryConstruct) tryConstruct.addEventListener('click',tryConstructNdef);
+    }catch(err){ console.warn('attachUI failed',err); }
   }
 
   // Deep-link handling: if app opened with #card=<id> or ?card=<id>, load and attempt playback
