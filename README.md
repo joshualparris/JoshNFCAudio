@@ -41,3 +41,27 @@ Want me to:
 - Add icon PNGs into `/icons` and a nicer default cover image? (I can generate simple SVG icons.)
 - Improve track-to-card assignment UI (drag/drop)?
 - Add export/import buttons in UI? (Currently available via `DB.exportAll()` in console.)
+
+Quick GitHub Pages deploy
+-------------------------
+1. Create a repository on GitHub and push this project (or use the repo you already created).
+2. Ensure the repo is Public (Pages from `gh-pages` works automatically for public repos).
+3. To publish immediately from the `gh-pages` branch, run locally (PowerShell):
+
+```powershell
+git checkout main
+git push -u origin main
+git checkout -b gh-pages main
+git push -u origin gh-pages --force
+git checkout main
+```
+
+4. The site will be available at `https://<username>.github.io/<repo>/` (may take a minute).
+
+Notes about Web NFC and testing
+--------------------------------
+- Web NFC works in Chrome/Chromium on Android and requires HTTPS (or localhost). GitHub Pages provides HTTPS.
+- Use the in-app "Write to Card" flow to write a `card://<id>` text record (default) or a URL record that links back to the app.
+- Blank NTAG21x tags will show as "Blank card — no NDEF records" in the UI; use Write mode to program them.
+
+If you want me to push and publish this repo for you again or change Pages settings, tell me and I can run the necessary git commands from this workspace.

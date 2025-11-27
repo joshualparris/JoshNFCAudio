@@ -39,7 +39,9 @@
     await refreshAll();
     // Try register service worker
     if('serviceWorker' in navigator){
-      try{ await navigator.serviceWorker.register('/sw.js'); console.log('sw registered'); }
+      // Register service worker using a relative path and scope so the PWA works when hosted under
+      // a repo subpath (GitHub Pages like https://user.github.io/repo/). Using './sw.js' + scope './'.
+      try{ await navigator.serviceWorker.register('./sw.js', { scope: './' }); console.log('sw registered'); }
       catch(e){console.warn('sw failed',e)}
     }
     // Setup NDEFReader instance when available
@@ -56,6 +58,7 @@
     createCardBtn.addEventListener('click',createCardFromInput);
     startWriteBtn.addEventListener('click',startWriteFlow);
     scanBtn.addEventListener('click',startScan);
+    document.getElementById('testTagBtn').addEventListener('click',startTestTag);
     playBtn.addEventListener('click',togglePlay);
     prevBtn.addEventListener('click',playPrev);
     nextBtn.addEventListener('click',playNext);
@@ -151,15 +154,27 @@
     if(!ndef){ writeStatus.textContent='Web NFC not supported on this device/browser.'; return }
     const cardId = writeCardSelect.value;
     if(!cardId){ writeStatus.textContent='Select a card to write.'; return }
+    const writeType = (document.getElementById('writeTypeSelect')||{}).value || 'text';
     writeStatus.textContent='Tap a blank card to write...';
     try{
-      // The write will prompt user to present the tag
-      await ndef.write({records:[{recordType:'text',data:cardId}]});
+      // Compose payloads according to selected type. Default: text record with prefix 'card://'
+      const textPayload = `card://${cardId}`;
+      // If URL chosen, write a URL that returns to the app with the card query param (works from Pages)
+      const baseUrl = `${location.origin}${location.pathname}`;
+      const appUrl = `${baseUrl}${baseUrl.includes('?')? '&':'?'}card=${encodeURIComponent(cardId)}`;
+      if(writeType === 'url'){
+        await ndef.write({records:[{recordType:'url',data:appUrl}]});
+      }else{
+        await ndef.write({records:[{recordType:'text',data:textPayload}]});
+      }
       writeStatus.textContent='Write successful ✅';
       // small success animation - flash
       setTimeout(()=>writeStatus.textContent='',2000);
     }catch(err){
-      writeStatus.textContent='Write failed: '+err.message;
+      // Show clearer messages for common Web NFC errors
+      if(err.name === 'NotAllowedError') writeStatus.textContent = 'Write failed: permission denied (user dismissed prompt)';
+      else if(err.name === 'NotSupportedError') writeStatus.textContent = 'Write failed: NFC not supported on this tag/browser';
+      else writeStatus.textContent='Write failed: '+err.message;
     }
   }
 
@@ -170,17 +185,32 @@
       ndef.onreadingerror = () => console.log('NFC read error');
       ndef.onreading = async (ev)=>{
         // read NDEF message
-        const msgs = ev.message.records;
-        for(const r of msgs){
+        const records = ev.message.records || [];
+        if(records.length === 0){
+          // Blank card — prompt user to write it
+          const last = document.getElementById('lastPayload'); if(last) last.textContent = 'Blank card read — no NDEF records. Use Write mode to program it.';
+          console.log('Blank NDEF message');
+          return;
+        }
+        for(const r of records){
           try{
             let text='';
+            // r.data may be a DataView or string depending on browser; try to decode carefully
             if(r.recordType==='text'){
-              const decoder = new TextDecoder(r.encoding||'utf-8');
-              text = decoder.decode(r.data);
+              if(r.encoding){ // some browsers expose encoding
+                const decoder = new TextDecoder(r.encoding||'utf-8');
+                text = decoder.decode(r.data);
+              } else {
+                // attempt to treat r.data as a DOMString or Uint8Array
+                try{ text = new TextDecoder('utf-8').decode(r.data); }catch(_){ text = String(r.data || ''); }
+              }
             }else if(r.recordType==='url'){
-              const decoder = new TextDecoder('utf-8'); text = decoder.decode(r.data);
+              try{ text = new TextDecoder('utf-8').decode(r.data); }catch(_){ text = String(r.data || ''); }
+            } else {
+              try{ text = new TextDecoder('utf-8').decode(r.data); }catch(_){ text = String(r.data || ''); }
             }
             console.log('NFC read',text);
+            const last = document.getElementById('lastPayload'); if(last) last.textContent = `Last payload: ${text}`;
             handleCardTap(text);
           }catch(e){console.warn('read record failed',e)}
         }
@@ -189,6 +219,24 @@
     }catch(err){
       alert('NFC scan failed: '+err.message);
     }
+  }
+
+  // Start a short test scan and display last read payload in the UI
+  async function startTestTag(){
+    if(!ndef){ alert('Web NFC not supported in this browser. Chrome on Android required.'); return }
+    try{
+      await ndef.scan();
+      ndef.onreadingerror = () => console.log('NFC read error');
+      ndef.onreading = (ev)=>{
+        const records = ev.message.records || [];
+        const last = document.getElementById('lastPayload');
+        if(records.length === 0){ if(last) last.textContent = 'Blank card read — no NDEF records.'; return; }
+        for(const r of records){
+          try{ const text = new TextDecoder('utf-8').decode(r.data); if(last) last.textContent = `Last payload: ${text}`; console.log('test read',text); }
+          catch(e){ console.warn('test read decode failed',e); }
+        }
+      };
+    }catch(err){ alert('NFC scan failed: '+err.message); }
   }
 
   async function handleCardTap(text){

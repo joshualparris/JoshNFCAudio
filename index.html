@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>NFC Audio Player — Browser Yoto</title>
   <meta name="description" content="Turn an NFC card into a Yoto-like audio player — PWA, offline, Web NFC" />
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" href="/icons/icon-192.svg">
+  <!-- Use relative paths so site works when hosted under a repo subpath (GitHub Pages) -->
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icons/icon-192.svg">
   <link rel="stylesheet" href="styles.css">
   <meta name="theme-color" content="#0f172a" />
 </head>
@@ -17,8 +18,11 @@
       <div class="controls">
         <button id="darkToggle" class="btn small">Dark</button>
         <button id="scanBtn" class="btn primary">Start NFC Scan</button>
+        <button id="testTagBtn" class="btn">Test Tag</button>
       </div>
     </header>
+
+    <div id="nfcHint" class="small" style="margin-bottom:12px;color:var(--muted)">Web NFC: Chrome on Android only, HTTPS required. Use Write mode for blank cards.</div>
 
     <section class="panel" id="uploadPanel">
       <h2>Upload audio files</h2>
@@ -40,9 +44,11 @@
       <h2>Card Writing Mode</h2>
       <div class="row">
         <select id="writeCardSelect"></select>
+        <select id="writeTypeSelect"><option value="text">Text (card://id)</option><option value="url">URL (link to app)</option></select>
         <button id="startWriteBtn" class="btn primary">Write to Card</button>
       </div>
       <div id="writeStatus" class="status"></div>
+      <div id="lastPayload" class="small" style="margin-top:8px;color:var(--muted)"></div>
     </section>
 
     <section class="panel" id="playerPanel">
