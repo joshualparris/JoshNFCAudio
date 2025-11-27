@@ -20,6 +20,8 @@
         <button id="scanBtn" class="btn primary">Start NFC Scan</button>
         <button id="testTagBtn" class="btn">Test Tag</button>
         <button id="nfcDebugBtn" class="btn small">NFC Debug</button>
+        <button id="exportBtn" class="btn small">Export</button>
+        <button id="importBtn" class="btn small">Import</button>
       </div>
     </header>
 
@@ -100,6 +102,8 @@
 
     <audio id="audio" preload="metadata"></audio>
   </main>
+
+  <input id="importFile" type="file" accept="application/json" hidden>
 
   <script src="db.js"></script>
   <script src="app.js"></script>

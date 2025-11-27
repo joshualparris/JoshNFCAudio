@@ -2,7 +2,7 @@
 // Stores audio blobs and card definitions. Uses Promises for convenience.
 (function(){
   const DB_NAME = 'nfc-audio-db';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   let dbPromise = null;
 
   function openDB(){
@@ -18,6 +18,11 @@
         if(!db.objectStoreNames.contains('cards')){
           const s = db.createObjectStore('cards',{keyPath:'id'});
           s.createIndex('by-name','name',{unique:false});
+        }
+        // New store to map NFC tag serialNumber (UID) to card id for fallback lookups
+        if(!db.objectStoreNames.contains('uids')){
+          const s = db.createObjectStore('uids',{keyPath:'uid'});
+          s.createIndex('by-uid','uid',{unique:true});
         }
       };
       req.onsuccess = ()=>resolve(req.result);
@@ -116,7 +121,27 @@
       for(const c of data.cards||[]){
         await withStore('cards','readwrite',s=>s.put(c));
       }
+      // Optionally import uid mappings if present
+      if(data.uids && Array.isArray(data.uids)){
+        for(const m of data.uids){
+          await withStore('uids','readwrite',s=>s.put(m));
+        }
+      }
     }
+    // Map a tag UID to a card id
+    async mapUidToCard(uid, cardId){
+      if(!uid) return;
+      await withStore('uids','readwrite',s=>s.put({uid,cardId,created:Date.now()}));
+    },
+    async getCardIdByUid(uid){
+      if(!uid) return null;
+      const db = await openDB();
+      return new Promise((resolve,reject)=>{
+        const req = db.transaction('uids').objectStore('uids').get(uid);
+        req.onsuccess = ()=>resolve(req.result?req.result.cardId:null);
+        req.onerror = ()=>reject(req.error);
+      });
+    },
   };
 
   // Helpers to convert blob/base64

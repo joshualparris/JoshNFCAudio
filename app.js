@@ -98,6 +98,10 @@
       }
       const closeDebug = document.getElementById('closeNfcDebug'); if(closeDebug) closeDebug.addEventListener('click',closeNfcDebug);
       const tryConstruct = document.getElementById('tryConstructNdef'); if(tryConstruct) tryConstruct.addEventListener('click',tryConstructNdef);
+      // Export / Import handlers
+      const exportBtn = document.getElementById('exportBtn'); if(exportBtn) exportBtn.addEventListener('click',onExportAll);
+      const importBtn = document.getElementById('importBtn'); if(importBtn) importBtn.addEventListener('click',()=>{ const f = document.getElementById('importFile'); if(f) f.click(); });
+      const importFile = document.getElementById('importFile'); if(importFile) importFile.addEventListener('change',onImportFile);
     }catch(err){ console.warn('attachUI failed',err); }
   }
 
@@ -285,11 +289,56 @@
         const b = document.getElementById('copyAfterWrite');
         if(b) b.addEventListener('click',async ()=>{ try{ await navigator.clipboard.writeText(appUrl); alert('Link copied'); }catch(e){ prompt('Copy this link', appUrl);} });
       },100);
+      // Try to verify the write by scanning briefly and capture tag UID for fallback
+      try{
+        const verify = await tryVerifyWrite(appUrl, cardId);
+        if(verify && verify.ok){
+          writeStatus.innerHTML += ` <span class="small">✅ verified</span>`;
+        }else{
+          writeStatus.innerHTML += ` <span class="small" style="color:orange">(not verified)</span>`;
+        }
+      }catch(e){ console.warn('verify failed',e); }
       // small success animation - clear after a short delay
       setTimeout(()=>{ if(writeStatus) writeStatus.textContent=''; },4000);
     }catch(err){
       writeStatus.textContent='Write failed: '+err.message;
     }
+  }
+
+  // Attempt a short scan to verify a recently-written NDEF URL and map tag UID to card
+  async function tryVerifyWrite(expectedUrl, cardId){
+    if(!ndef) return {ok:false,reason:'no-ndef'};
+    let controller = null;
+    try{
+      controller = new AbortController();
+      await ndef.scan({signal: controller.signal});
+    }catch(e){
+      return {ok:false,reason:'scan-start-failed',error:e};
+    }
+    return new Promise((resolve)=>{
+      let done = false;
+      const timeout = setTimeout(()=>{ if(!done){ done=true; try{ controller.abort(); }catch(e){} resolve({ok:false,reason:'timeout'}); } }, 3000);
+      ndef.onreading = async (ev)=>{
+        try{
+          const uid = ev.serialNumber || null;
+          const recs = ev.message && ev.message.records || [];
+          for(const r of recs){
+            let text = '';
+            if(r.recordType === 'url' || r.recordType === 'text'){
+              try{ text = new TextDecoder('utf-8').decode(r.data); }catch(e){}
+            }
+            if(text && (text === expectedUrl || text.includes(cardId))){
+              done = true; clearTimeout(timeout);
+              try{ controller.abort(); }catch(e){}
+              if(uid) await DB.mapUidToCard(uid, cardId);
+              resolve({ok:true,uid});
+              return;
+            }
+          }
+        }catch(e){/* ignore read errors */}
+      };
+      ndef.onreadingerror = ()=>{};
+    });
   }
 
   async function startScan(){
@@ -300,6 +349,7 @@
       ndef.onreading = async (ev)=>{
         // read NDEF message
         const msgs = ev.message.records;
+        let foundAny = false;
         for(const r of msgs){
           try{
             let text='';
@@ -310,8 +360,19 @@
               const decoder = new TextDecoder('utf-8'); text = decoder.decode(r.data);
             }
             console.log('NFC read',text);
-            handleCardTap(text);
+            foundAny = true;
+            const handled = await handleCardTap(text);
+            if(handled) return; // stop if handled
           }catch(e){console.warn('read record failed',e)}
+        }
+        // If no records matched or message empty, try UID fallback
+        if(!foundAny){
+          const uid = ev.serialNumber || null;
+          if(uid){
+            const cid = await DB.getCardIdByUid(uid);
+            if(cid){ const c = await DB.getCard(cid); if(c){ startCardPlayback(c); return; } }
+          }
+          alert('Card not recognized (empty payload)');
         }
       };
       scanBtn.textContent='Scanning… Tap a card';
@@ -341,12 +402,19 @@
       id = t;
     }
 
-    if(!id){ alert('Card not recognized: '+text); return }
+    if(!id){
+      // not parsed — return false so caller may try UID fallback
+      return false;
+    }
     // find card
     const c = await DB.getCard(id);
-    if(!c){ alert('Card not recognized: '+id); return; }
+    if(!c){
+      // not found by id
+      return false;
+    }
     // If a card tapped, start playback immediately, stopping any existing
     startCardPlayback(c);
+    return true;
   }
 
   async function startCardPlayback(card){
@@ -393,6 +461,30 @@
   function onVolumeChange(e){ audio.volume = Math.min(0.7, parseFloat(e.target.value)); }
 
   function toggleDark(){ document.body.classList.toggle('light'); }
+
+  // Export/import handlers
+  async function onExportAll(){
+    try{
+      const json = await DB.exportAll();
+      // include uid mappings
+      const uids = await (async ()=>{ try{ return await withStoreGetAll('uids'); }catch(e){return[];} })();
+      const obj = JSON.parse(json);
+      obj.uids = uids || [];
+      const blob = new Blob([JSON.stringify(obj)],{type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'josh-nfcaudio-export.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }catch(e){ alert('Export failed: '+(e&&e.message)); }
+  }
+  async function onImportFile(e){
+    const f = e.target.files && e.target.files[0]; if(!f) return; const txt = await f.text(); try{ await DB.importAll(txt); await refreshAll(); alert('Import complete'); }catch(err){ alert('Import failed: '+err.message); }
+    e.target.value = '';
+  }
+
+  // Helper to read all entries from a store (used for export uids)
+  async function withStoreGetAll(storeName){
+    const db = await (async()=>{return new Promise((res,rej)=>{const r=indexedDB.open('nfc-audio-db'); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);})();})();
+    return new Promise((resolve,reject)=>{ const tx = db.transaction(storeName); const req = tx.objectStore(storeName).getAll(); req.onsuccess = ()=>resolve(req.result||[]); req.onerror = ()=>reject(req.error); });
+  }
 
   // small edit card UI (rudimentary)
   async function editCard(id){
