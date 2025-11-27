@@ -149,6 +149,24 @@
     }
   }
 
+  // Quick inline NFC report (fallback if overlay doesn't appear)
+  async function quickNfcReport(){
+    const el = document.getElementById('nfcQuickStatus'); if(!el) return;
+    el.style.display = 'block';
+    const lines = [];
+    lines.push(`userAgent: ${navigator.userAgent}`);
+    lines.push(`isSecureContext: ${!!window.isSecureContext}`);
+    lines.push(`location: ${location.href}`);
+    lines.push(`NDEFReader in window: ${'NDEFReader' in window}`);
+    el.textContent = lines.join('\n');
+    try{
+      const obj = new NDEFReader();
+      el.textContent += '\n\nNDEFReader constructed OK. Note: scan() requires a user gesture and foreground tab.';
+    }catch(err){
+      el.textContent += `\n\nNDEFReader construction failed: ${err && err.name}: ${err && err.message}`;
+    }
+  }
+
   function showDeepPlayOverlay(){
     const ov = document.getElementById('deepPlayOverlay'); if(!ov) return; ov.style.display='flex';
   }
