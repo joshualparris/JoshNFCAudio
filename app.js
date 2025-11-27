@@ -120,6 +120,8 @@
   // NFC debug overlay helpers
   function openNfcDebug(){
     const ov = document.getElementById('nfcDebugOverlay'); if(!ov) return; ov.style.display='flex';
+    // Also populate the inline quick status immediately so users in mirrored/remote sessions see output
+    try{ quickNfcReport(); }catch(e){}
     const info = document.getElementById('nfcDebugInfo');
     const lines = [];
     lines.push(`userAgent: ${navigator.userAgent}`);
