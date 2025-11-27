@@ -48,9 +48,20 @@
     }
     // If opened via deep-link (hash or ?card=), attempt playback
     try{ handleDeepLinkIfPresent(); }catch(e){}
-    // Setup NDEFReader instance when available
-    if('NDEFReader' in window){ ndef = new NDEFReader(); }
-    else document.getElementById('scanBtn').disabled = true;
+    // Setup NDEFReader instance when available and surface diagnostics if not
+    const supportArea = document.getElementById('nfcHint');
+    if('NDEFReader' in window){
+      try{
+        ndef = new NDEFReader();
+        if(supportArea) supportArea.textContent = 'Web NFC available — Chrome on Android supported. Use Scan/Write buttons.';
+      }catch(e){
+        ndef = null;
+        if(supportArea) supportArea.textContent = 'Web NFC present but NDEFReader construction failed: '+(e && e.message);
+      }
+    } else {
+      if(supportArea) supportArea.innerHTML = `Web NFC not detected. Debug: <br><strong>userAgent:</strong> ${escapeHtml(navigator.userAgent)}<br><strong>isSecureContext:</strong> ${!!window.isSecureContext}<br><strong>location:</strong> ${escapeHtml(location.href)}<br><br>Web NFC requires Chrome on Android (not iOS) and the page must be served over HTTPS or localhost.`;
+      document.getElementById('scanBtn').disabled = true;
+    }
   })();
 
   function attachUI(){
