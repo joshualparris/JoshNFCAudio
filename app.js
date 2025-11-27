@@ -84,7 +84,18 @@
       const deepPlayBtn = document.getElementById('deepPlayBtn'); if(deepPlayBtn) deepPlayBtn.addEventListener('click',async ()=>{ try{ await audio.play(); hideDeepPlayOverlay(); }catch(e){ /* user needs to interact */ } });
       // NFC debug UI (open overlay and populate info)
       const nfcDebugBtn = document.getElementById('nfcDebugBtn');
-      if(nfcDebugBtn) nfcDebugBtn.addEventListener('click',openNfcDebug);
+      if(nfcDebugBtn){
+        try{
+          nfcDebugBtn.addEventListener('click',openNfcDebug);
+          // some Android embeders may not trigger click reliably; also listen for pointerdown
+          nfcDebugBtn.addEventListener('pointerdown',()=>{});
+          nfcDebugBtn.textContent = nfcDebugBtn.textContent + ' (ready)';
+          console.log('NFC Debug listener attached');
+        }catch(e){
+          console.warn('failed attach nfcDebugBtn',e);
+          nfcDebugBtn.textContent = nfcDebugBtn.textContent + ' (no-listener)';
+        }
+      }
       const closeDebug = document.getElementById('closeNfcDebug'); if(closeDebug) closeDebug.addEventListener('click',closeNfcDebug);
       const tryConstruct = document.getElementById('tryConstructNdef'); if(tryConstruct) tryConstruct.addEventListener('click',tryConstructNdef);
     }catch(err){ console.warn('attachUI failed',err); }
