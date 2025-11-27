@@ -84,6 +84,11 @@
     darkToggle.addEventListener('click',toggleDark);
     // Deep link overlay play button
     const deepPlayBtn = document.getElementById('deepPlayBtn'); if(deepPlayBtn) deepPlayBtn.addEventListener('click',async ()=>{ try{ await audio.play(); hideDeepPlayOverlay(); }catch(e){ /* user needs to interact */ } });
+    // NFC debug UI (open overlay and populate info)
+    const nfcDebugBtn = document.getElementById('nfcDebugBtn');
+    if(nfcDebugBtn) nfcDebugBtn.addEventListener('click',openNfcDebug);
+    const closeDebug = document.getElementById('closeNfcDebug'); if(closeDebug) closeDebug.addEventListener('click',closeNfcDebug);
+    const tryConstruct = document.getElementById('tryConstructNdef'); if(tryConstruct) tryConstruct.addEventListener('click',tryConstructNdef);
   }
 
   // Deep-link handling: if app opened with #card=<id> or ?card=<id>, load and attempt playback
@@ -100,6 +105,38 @@
     await startCardPlayback(c);
     // if autoplay blocked, show big play overlay
     if(!isPlaying){ showDeepPlayOverlay(); }
+  }
+
+  // NFC debug overlay helpers
+  function openNfcDebug(){
+    const ov = document.getElementById('nfcDebugOverlay'); if(!ov) return; ov.style.display='flex';
+    const info = document.getElementById('nfcDebugInfo');
+    const lines = [];
+    lines.push(`userAgent: ${navigator.userAgent}`);
+    lines.push(`vendor: ${navigator.vendor}`);
+    lines.push(`platform: ${navigator.platform}`);
+    lines.push(`isSecureContext: ${!!window.isSecureContext}`);
+    lines.push(`location: ${location.href}`);
+    lines.push(`NDEFReader in window: ${'NDEFReader' in window}`);
+    if(typeof navigator.permissions !== 'undefined' && navigator.permissions.query){
+      // show permission state for nfc if available
+      try{ navigator.permissions.query({name:'nfc'}).then(s=>{ const p = `permission (nfc): ${s.state}`; const el=document.getElementById('nfcDebugInfo'); if(el) el.textContent = lines.join('\n') + '\n' + p; }).catch(()=>{}); }
+      catch(e){}
+    }
+    if(info) info.textContent = lines.join('\n');
+    const result = document.getElementById('nfcDebugResult'); if(result) result.textContent='';
+  }
+  function closeNfcDebug(){ const ov=document.getElementById('nfcDebugOverlay'); if(ov) ov.style.display='none'; }
+  async function tryConstructNdef(){
+    const res = document.getElementById('nfcDebugResult'); if(!res) return;
+    try{
+      const obj = new NDEFReader();
+      res.textContent = 'NDEFReader constructed successfully.\nAttempting scan() may require user gesture and foreground tab.';
+      // cleanup if possible
+      try{ if(obj && obj.scan) { /* do not start scan automatically */ } }catch(e){}
+    }catch(err){
+      res.textContent = `Failed to construct NDEFReader: ${err && err.name}: ${err && err.message}\n\nStack:\n${err && err.stack || ''}`;
+    }
   }
 
   function showDeepPlayOverlay(){
