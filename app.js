@@ -33,8 +33,9 @@
   let isPlaying = false;
   let ndef = null; // NDEFReader instance
   // Base URL for deep links (works under GH Pages subpath)
+  // Use an absolute base derived from the current location and write a query param
   const APP_BASE = new URL('./', location.href).href; // includes trailing slash
-  function buildCardUrl(cardId){ return `${APP_BASE}#card=${encodeURIComponent(cardId)}`; }
+  function buildCardUrl(cardId){ return `${APP_BASE}?card=${encodeURIComponent(cardId)}`; }
 
   // Init UI
   (async function init(){
@@ -76,15 +77,15 @@
 
   // Deep-link handling: if app opened with #card=<id> or ?card=<id>, load and attempt playback
   async function handleDeepLinkIfPresent(){
-    // parse hash first, then query
-    const hash = location.hash || '';
+    // Prefer query param ?card= for cross-platform URL-on-tag behavior, fall back to #card=
+    const qp = new URLSearchParams(location.search);
     let id = null;
-    if(hash.startsWith('#card=')) id = decodeURIComponent(hash.slice(6));
-    if(!id){ const qp = new URLSearchParams(location.search); if(qp.has('card')) id = qp.get('card'); }
+    if(qp.has('card')) id = qp.get('card');
+    if(!id){ const hash = location.hash || ''; if(hash.startsWith('#card=')) id = decodeURIComponent(hash.slice(6)); }
     if(!id) return;
     const c = await DB.getCard(id);
     if(!c) return;
-    // try to auto-play
+    // try to auto-play (user gesture may be required)
     await startCardPlayback(c);
     // if autoplay blocked, show big play overlay
     if(!isPlaying){ showDeepPlayOverlay(); }
@@ -192,15 +193,22 @@
     try{
       // Compose payload: default to URL deep-link for best cross-platform behaviour
       const writeType = (document.getElementById('writeTypeSelect')||{}).value || 'url';
+      let appUrl = '';
       if(writeType === 'url'){
-        const appUrl = buildCardUrl(cardId);
+        appUrl = buildCardUrl(cardId);
         await ndef.write({records:[{recordType:'url',data:appUrl}]});
       }else{
         await ndef.write({records:[{recordType:'text',data:cardId}]});
+        appUrl = buildCardUrl(cardId);
       }
-      writeStatus.textContent='Write successful ✅';
-      // small success animation - flash
-      setTimeout(()=>writeStatus.textContent='',2000);
+      writeStatus.innerHTML = `Write successful ✅ <span class="small">${escapeHtml(cardId)}</span> <button id="copyAfterWrite" class="btn small">Copy Link</button>`;
+      // attach copy handler
+      setTimeout(()=>{
+        const b = document.getElementById('copyAfterWrite');
+        if(b) b.addEventListener('click',async ()=>{ try{ await navigator.clipboard.writeText(appUrl); alert('Link copied'); }catch(e){ prompt('Copy this link', appUrl);} });
+      },100);
+      // small success animation - clear after a short delay
+      setTimeout(()=>{ if(writeStatus) writeStatus.textContent=''; },4000);
     }catch(err){
       writeStatus.textContent='Write failed: '+err.message;
     }

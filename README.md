@@ -62,12 +62,18 @@ git push -u origin gh-pages --force
 git checkout main
 ```
 
-4. The site will be available at `https://<username>.github.io/<repo>/` (may take a minute).
+4. The site will be available at `https://joshualparris.github.io/JoshNFCAudio/` (may take a minute).
 
 Notes about Web NFC and testing
 --------------------------------
 - Web NFC works in Chrome/Chromium on Android and requires HTTPS (or localhost). GitHub Pages provides HTTPS.
-- Use the in-app "Write to Card" flow to write a `card://<id>` text record (default) or a URL record that links back to the app.
+-- Use the in-app "Write to Card" flow to write a URL record that links back to the app by default. The app writes a URL of the form:
+
+```
+https://joshualparris.github.io/JoshNFCAudio/?card=<card-id>
+```
+
+When a user taps the card on iPhone or Android, the phone opens that URL in the browser. The page will load the matching card from IndexedDB and show a large Play button so the user can start playback with a single tap. If the card isn't present on that phone, the app shows a message explaining how to import tracks.
 - Blank NTAG21x tags will show as "Blank card — no NDEF records" in the UI; use Write mode to program them.
 
 If you want me to push and publish this repo for you again or change Pages settings, tell me and I can run the necessary git commands from this workspace.
