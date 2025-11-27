@@ -186,32 +186,84 @@
       ndef.onreading = async (ev)=>{
         // read NDEF message
         const records = ev.message.records || [];
+        const lastEl = document.getElementById('lastPayload');
         if(records.length === 0){
           // Blank card — prompt user to write it
-          const last = document.getElementById('lastPayload'); if(last) last.textContent = 'Blank card read — no NDEF records. Use Write mode to program it.';
+          if(lastEl) lastEl.textContent = 'Blank card read — no NDEF records. Use Write mode to program it.';
           console.log('Blank NDEF message');
           return;
         }
+
+        // Helper to parse NFC Text Record per NFC Forum Text Record spec
+        function parseTextRecordPayload(dataViewOrBuffer){
+          // Accept ArrayBuffer, DataView or Uint8Array
+          let buf;
+          if(dataViewOrBuffer instanceof DataView) buf = dataViewOrBuffer.buffer;
+          else if(dataViewOrBuffer instanceof ArrayBuffer) buf = dataViewOrBuffer;
+          else if(dataViewOrBuffer && dataViewOrBuffer.buffer) buf = dataViewOrBuffer.buffer;
+          else return null;
+          const dv = new DataView(buf);
+          if(dv.byteLength === 0) return '';
+          const status = dv.getUint8(0);
+          const isUtf16 = (status & 0x80) !== 0;
+          const langLen = status & 0x3F;
+          const encoding = isUtf16 ? 'utf-16' : 'utf-8';
+          const textBytes = new Uint8Array(buf, 1 + langLen);
+          try{ return new TextDecoder(encoding).decode(textBytes); }catch(e){ try{ return new TextDecoder('utf-8').decode(textBytes); }catch(_){ return '' } }
+        }
+
         for(const r of records){
           try{
-            let text='';
-            // r.data may be a DataView or string depending on browser; try to decode carefully
-            if(r.recordType==='text'){
-              if(r.encoding){ // some browsers expose encoding
-                const decoder = new TextDecoder(r.encoding||'utf-8');
-                text = decoder.decode(r.data);
-              } else {
-                // attempt to treat r.data as a DOMString or Uint8Array
-                try{ text = new TextDecoder('utf-8').decode(r.data); }catch(_){ text = String(r.data || ''); }
-              }
-            }else if(r.recordType==='url'){
-              try{ text = new TextDecoder('utf-8').decode(r.data); }catch(_){ text = String(r.data || ''); }
+            let payloadText = '';
+            if(r.recordType === 'text'){
+              payloadText = parseTextRecordPayload(r.data) || '';
+            } else if(r.recordType === 'url'){
+              // Some browsers provide a string, some provide ArrayBuffer
+              try{ payloadText = typeof r.data === 'string' ? r.data : new TextDecoder('utf-8').decode(r.data); }catch(e){ payloadText = String(r.data||''); }
             } else {
-              try{ text = new TextDecoder('utf-8').decode(r.data); }catch(_){ text = String(r.data || ''); }
+              // fallback: try to decode as utf-8
+              try{ payloadText = new TextDecoder('utf-8').decode(r.data); }catch(e){ payloadText = String(r.data||''); }
             }
-            console.log('NFC read',text);
-            const last = document.getElementById('lastPayload'); if(last) last.textContent = `Last payload: ${text}`;
-            handleCardTap(text);
+
+            // Trim and normalize
+            payloadText = (payloadText||'').trim();
+            console.log('NFC read recordType=', r.recordType, 'payload=', payloadText);
+            if(lastEl) lastEl.textContent = `Last payload: ${payloadText}`;
+
+            // Try to extract card id from possible payload formats
+            // 1) card://<id>
+            // 2) plain id
+            // 3) URL containing ?card=<id> or #card=<id> or path ending with id
+            let candidate = payloadText;
+            if(!candidate) continue;
+            let id = null;
+            if(candidate.startsWith('card://')) id = candidate.slice(7);
+            else {
+              try{
+                const u = new URL(candidate);
+                // check query/hash params
+                const qp = new URLSearchParams(u.search);
+                if(qp.has('card')) id = qp.get('card');
+                else if(u.hash && u.hash.includes('card=')){ const hp = new URLSearchParams(u.hash.replace(/^#/,'')); if(hp.has('card')) id = hp.get('card'); }
+                else {
+                  // fallback: last path segment
+                  const parts = u.pathname.split('/').filter(Boolean);
+                  if(parts.length) id = parts[parts.length-1];
+                }
+              }catch(e){
+                // not a URL — treat as plain id
+                id = candidate;
+              }
+            }
+
+            if(!id){
+              console.log('Could not extract id from payload', payloadText);
+              continue;
+            }
+
+            handleCardTap(id);
+            // stop after first usable record
+            break;
           }catch(e){console.warn('read record failed',e)}
         }
       };
