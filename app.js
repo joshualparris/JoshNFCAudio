@@ -32,6 +32,8 @@
   let activeIndex = 0; // track index
   let isPlaying = false;
   let ndef = null; // NDEFReader instance
+  let isScanning = false;
+  let scanController = null;
 
   // Init UI
   (async function init(){
@@ -47,81 +49,81 @@
     // Setup NDEFReader instance when available
     if('NDEFReader' in window){ ndef = new NDEFReader(); }
     else document.getElementById('scanBtn').disabled = true;
-  })();
+  async function startScan(){
+    if(!ndef){ alert('Web NFC not supported in this browser. Chrome on Android required.'); return }
+    if(isScanning){ alert('A scan is already active. If you see a system prompt, cancel it and try again.'); return }
+    const scanBtnEl = document.getElementById('scanBtn');
+    const testBtnEl = document.getElementById('testTagBtn');
+    try{
+      // Use AbortController if available so we can cancel scans (supported in modern Chromium)
+      let options = {};
+      try{
+        scanController = new AbortController();
+        options = { signal: scanController.signal };
+      }catch(e){ scanController = null; options = {}; }
 
-  function attachUI(){
-    filePickBtn.addEventListener('click',()=>fileInput.click());
-    fileInput.addEventListener('change',handleFiles);
-    ['dragenter','dragover'].forEach(ev=>dropZone.addEventListener(ev,e=>{e.preventDefault();dropZone.classList.add('drag')}));
-    ['dragleave','drop'].forEach(ev=>dropZone.addEventListener(ev,e=>{e.preventDefault();dropZone.classList.remove('drag')}));
-    dropZone.addEventListener('drop',e=>{handleFiles({target:{files:e.dataTransfer.files}})});
-    createCardBtn.addEventListener('click',createCardFromInput);
-    startWriteBtn.addEventListener('click',startWriteFlow);
-    scanBtn.addEventListener('click',startScan);
-    document.getElementById('testTagBtn').addEventListener('click',startTestTag);
-    playBtn.addEventListener('click',togglePlay);
-    prevBtn.addEventListener('click',playPrev);
-    nextBtn.addEventListener('click',playNext);
-    audio.addEventListener('ended',onTrackEnded);
-    audio.addEventListener('timeupdate',updateSeek);
-    seek.addEventListener('input',onSeek);
-    volume.addEventListener('input',onVolumeChange);
-    darkToggle.addEventListener('click',toggleDark);
-  }
+      isScanning = true; if(scanBtnEl) scanBtnEl.disabled = true; if(testBtnEl) testBtnEl.disabled = true;
+      await ndef.scan(options);
+      ndef.onreadingerror = () => { console.log('NFC read error'); };
+      ndef.onreading = async (ev)=>{
+        // Process incoming records and show debug dump
+        const records = ev.message.records || [];
+        const lastEl = document.getElementById('lastPayload');
+        const dumpEl = document.getElementById('rawDump');
+        if(records.length === 0){ if(lastEl) lastEl.textContent = 'Blank card read — no NDEF records. Use Write mode to program it.'; if(dumpEl) dumpEl.textContent = ''; return; }
 
-  async function refreshAll(){
-    tracks = await DB.listTracks();
-    cards = await DB.listCards();
-    renderTracks();
-    renderCards();
-    populateWriteSelect();
-  }
+        for(const r of records){
+          try{
+            // Build a small debug dump with metadata and raw bytes (hex)
+            let meta = `type: ${r.recordType} id:${r.id||''} media:${r.mediaType||''}`;
+            let hex = '';
+            try{
+              let buf = r.data && r.data.buffer ? r.data.buffer : (r.data instanceof ArrayBuffer ? r.data : null);
+              if(!buf && typeof r.data === 'string') buf = new TextEncoder().encode(r.data).buffer;
+              if(buf){ const u8 = new Uint8Array(buf); hex = Array.from(u8).map(b => b.toString(16).padStart(2,'0')).join(' '); }
+            }catch(e){ hex = 'unable to extract bytes'; }
+            if(dumpEl) dumpEl.textContent = `${meta}\nhex: ${hex}`;
 
-  // Handle file uploads
-  async function handleFiles(e){
-    const files = e.target.files;
-    for(const f of files){
-      // accept audio files only
-      if(!f.type.startsWith('audio')) continue;
-      await DB.addTrack(f);
+            // Try to decode text payloads robustly
+            let payloadText = '';
+            if(r.recordType === 'text') payloadText = parseTextRecordPayload(r.data) || '';
+            else if(r.recordType === 'url') { try{ payloadText = typeof r.data === 'string' ? r.data : new TextDecoder('utf-8').decode(r.data); }catch(e){ payloadText = String(r.data||''); } }
+            else { try{ payloadText = new TextDecoder('utf-8').decode(r.data); }catch(e){ payloadText = String(r.data||''); } }
+
+            payloadText = (payloadText||'').trim();
+            if(lastEl) lastEl.textContent = `Last payload: ${payloadText}`;
+
+            // Extract id (card://, URL param, or plain id)
+            let id = null;
+            if(payloadText.startsWith('card://')) id = payloadText.slice(7);
+            else {
+              try{ const u = new URL(payloadText); const qp = new URLSearchParams(u.search); if(qp.has('card')) id = qp.get('card'); else if(u.hash && u.hash.includes('card=')){ const hp = new URLSearchParams(u.hash.replace(/^#/,'')); if(hp.has('card')) id = hp.get('card'); } else { const parts = u.pathname.split('/').filter(Boolean); if(parts.length) id = parts[parts.length-1]; } }
+              catch(e){ id = payloadText; }
+            }
+
+            if(!id || id.trim()===''){
+              console.log('No usable id extracted from payload', payloadText);
+              // continue scanning but show message
+              continue;
+            }
+
+            // Found an id — attempt to handle it
+            handleCardTap(id);
+
+            // if this was a test scan, allow stopping after first read; otherwise keep scanning
+            // We don't automatically abort regular scan to allow multi-tap reads
+            break;
+          }catch(e){ console.warn('read record failed',e); }
+        }
+      };
+      if(scanBtnEl) scanBtnEl.textContent='Scanning… Tap a card';
+      // Re-enable UI after a short time to avoid stuck controls if browser doesn't return
+      setTimeout(()=>{ isScanning=false; if(scanBtnEl){ scanBtnEl.disabled=false; scanBtnEl.textContent='Start NFC Scan' } if(testBtnEl) testBtnEl.disabled=false; scanController = null; }, 15000);
+    }catch(err){
+      isScanning=false; if(scanBtnEl) { scanBtnEl.disabled=false; scanBtnEl.textContent='Start NFC Scan' } const testBtnEl2 = document.getElementById('testTagBtn'); if(testBtnEl2) testBtnEl2.disabled=false;
+      alert('NFC scan failed: '+err.message);
     }
-    await refreshAll();
   }
-
-  function renderTracks(){
-    tracksList.innerHTML = '';
-    if(tracks.length===0){ tracksList.textContent='No tracks uploaded yet.'; return }
-    tracks.forEach(t=>{
-      const el = document.createElement('div'); el.className='card';
-      el.innerHTML = `<div><strong>${escapeHtml(t.name)}</strong></div>
-        <div class="small">${Math.round(t.size/1024)} KB</div>
-        <div class="row"><button data-id="${t.id}" class="btn addTrack">Add to Card</button>
-        <button data-id="${t.id}" class="btn small delTrack">Delete</button></div>`;
-      tracksList.appendChild(el);
-    });
-    // attach add/delete handlers
-    tracksList.querySelectorAll('.addTrack').forEach(b=>b.addEventListener('click',onAddTrackToCard));
-    tracksList.querySelectorAll('.delTrack').forEach(b=>b.addEventListener('click',async ev=>{await DB.deleteTrack(ev.target.dataset.id);await refreshAll()}));
-  }
-
-  function renderCards(){
-    cardsList.innerHTML='';
-    if(cards.length===0){cardsList.textContent='No cards yet.';return}
-    cards.forEach(c=>{
-      const el = document.createElement('div'); el.className='card';
-      el.innerHTML = `<div style="display:flex;justify-content:space-between"><strong>${escapeHtml(c.name)}</strong>
-        <div><button data-id="${c.id}" class="btn small playCard">▶</button>
-        <button data-id="${c.id}" class="btn small editCard">✏️</button>
-        <button data-id="${c.id}" class="btn small delCard">🗑</button></div></div>
-        <div class="small">${c.tracks.length} tracks</div>`;
-      cardsList.appendChild(el);
-    });
-    // handlers
-    cardsList.querySelectorAll('.playCard').forEach(b=>b.addEventListener('click',async ev=>{const cid=ev.target.dataset.id;const c=await DB.getCard(cid);startCardPlayback(c);}));
-    cardsList.querySelectorAll('.delCard').forEach(b=>b.addEventListener('click',async ev=>{if(confirm('Delete card?')){await DB.deleteCard(ev.target.dataset.id);await refreshAll();}}));
-    cardsList.querySelectorAll('.editCard').forEach(b=>b.addEventListener('click',ev=>editCard(ev.target.dataset.id)));
-  }
-
   function populateWriteSelect(){
     writeCardSelect.innerHTML='';
     cards.forEach(c=>{
@@ -276,19 +278,41 @@
   // Start a short test scan and display last read payload in the UI
   async function startTestTag(){
     if(!ndef){ alert('Web NFC not supported in this browser. Chrome on Android required.'); return }
+    if(isScanning){ alert('A scan is already active.'); return }
+    const testBtn = document.getElementById('testTagBtn');
+    const scanBtnEl = document.getElementById('scanBtn');
     try{
-      await ndef.scan();
+      // Use AbortController to stop after first read
+      try{ scanController = new AbortController(); }catch(e){ scanController = null; }
+      const options = scanController ? { signal: scanController.signal } : {};
+      isScanning = true; if(testBtn) testBtn.disabled=true; if(scanBtnEl) scanBtnEl.disabled=true;
+      await ndef.scan(options);
       ndef.onreadingerror = () => console.log('NFC read error');
       ndef.onreading = (ev)=>{
         const records = ev.message.records || [];
         const last = document.getElementById('lastPayload');
-        if(records.length === 0){ if(last) last.textContent = 'Blank card read — no NDEF records.'; return; }
-        for(const r of records){
-          try{ const text = new TextDecoder('utf-8').decode(r.data); if(last) last.textContent = `Last payload: ${text}`; console.log('test read',text); }
-          catch(e){ console.warn('test read decode failed',e); }
+        const dumpEl = document.getElementById('rawDump');
+        if(records.length === 0){ if(last) last.textContent = 'Blank card read — no NDEF records.'; if(dumpEl) dumpEl.textContent='';
+          if(scanController) try{ scanController.abort(); }catch(_){ }
+          isScanning=false; if(testBtn) testBtn.disabled=false; if(scanBtnEl) scanBtnEl.disabled=false;
+          return;
         }
+        for(const r of records){
+          try{
+            let text = '';
+            try{ text = r.recordType==='text' ? parseTextRecordPayload(r.data) : (typeof r.data === 'string' ? r.data : new TextDecoder('utf-8').decode(r.data)); }
+            catch(e){ text = String(r.data||''); }
+            if(last) last.textContent = `Last payload: ${text}`;
+            // dump
+            if(dumpEl){ let buf = r.data && r.data.buffer ? r.data.buffer : (r.data instanceof ArrayBuffer? r.data : null); let hex=''; if(!buf && typeof r.data==='string') buf = new TextEncoder().encode(r.data).buffer; if(buf){ const u8=new Uint8Array(buf); hex = Array.from(u8).map(b=>b.toString(16).padStart(2,'0')).join(' ');} dumpEl.textContent = `type:${r.recordType}\nhex:${hex}` }
+            // stop after first record
+            if(scanController) try{ scanController.abort(); }catch(_){ }
+            break;
+          }catch(e){ console.warn('test read decode failed',e); }
+        }
+        isScanning=false; if(testBtn) testBtn.disabled=false; if(scanBtnEl) scanBtnEl.disabled=false;
       };
-    }catch(err){ alert('NFC scan failed: '+err.message); }
+    }catch(err){ isScanning=false; if(testBtn) testBtn.disabled=false; if(scanBtnEl) scanBtnEl.disabled=false; alert('NFC scan failed: '+err.message); }
   }
 
   async function handleCardTap(text){
