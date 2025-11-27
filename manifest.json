@@ -1,7 +1,7 @@
 {
   "name":"NFC Audio Player",
   "short_name":"NFC Yoto",
-  "start_url":"./index.html",
+  "start_url":"./",
   "scope":"./",
   "display":"standalone",
   "background_color":"#071029",

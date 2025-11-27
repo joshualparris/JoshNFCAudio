@@ -29,6 +29,12 @@ Notes & Limitations:
 - For maximum offline storage, allow storage persistence if the browser prompts.
 - The manifest references `icons/` which you may add images to (192x192 and 512x512 PNGs) for proper home-screen icons.
 
+iPhone and deep-links
+---------------------
+- iPhone Safari cannot run Web NFC in the browser. To support iPhone users, NFC tags should store an HTTPS URL that links back to this app with the card id, for example `https://<user>.github.io/<repo>/#card=<id>`.
+- Tapping such a URL tag on iPhone will open Safari to the deep-link. The app will then load the playlist and attempt autoplay. If autoplay is blocked, the page shows a single large Play button for the user to tap.
+- This repo now writes URL records by default to maximize cross-device compatibility. Android still supports Web NFC scanning when the page is open and scanning is started.
+
 Files:
 - `index.html` — main UI
 - `styles.css` — styling

@@ -44,13 +44,18 @@
       <h2>Card Writing Mode</h2>
       <div class="row">
         <select id="writeCardSelect"></select>
-        <select id="writeTypeSelect"><option value="text">Text (card://id)</option><option value="url">URL (link to app)</option></select>
+        <select id="writeTypeSelect"><option value="url" selected>URL (link to app)</option><option value="text">Text (card://id)</option></select>
         <button id="startWriteBtn" class="btn primary">Write to Card</button>
       </div>
       <div id="writeStatus" class="status"></div>
       <div id="lastPayload" class="small" style="margin-top:8px;color:var(--muted)"></div>
       <pre id="rawDump" class="small" style="margin-top:8px;color:var(--muted);white-space:pre-wrap"></pre>
     </section>
+
+  <!-- Big play overlay for deep-link playback when autoplay is blocked -->
+  <div id="deepPlayOverlay" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);z-index:9999">
+    <button id="deepPlayBtn" class="btn big" style="background:var(--accent);color:#001214;padding:24px 36px;border-radius:16px">Play</button>
+  </div>
 
     <section class="panel" id="playerPanel">
       <h2>Player</h2>

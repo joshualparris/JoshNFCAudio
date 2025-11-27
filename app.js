@@ -32,16 +32,21 @@
   let activeIndex = 0; // track index
   let isPlaying = false;
   let ndef = null; // NDEFReader instance
+  // Base URL for deep links (works under GH Pages subpath)
+  const APP_BASE = new URL('./', location.href).href; // includes trailing slash
+  function buildCardUrl(cardId){ return `${APP_BASE}#card=${encodeURIComponent(cardId)}`; }
 
   // Init UI
   (async function init(){
     attachUI();
     await refreshAll();
-    // Try register service worker
+    // Try register service worker (use relative path & scope so it works under repo subpath)
     if('serviceWorker' in navigator){
-      try{ await navigator.serviceWorker.register('/sw.js'); console.log('sw registered'); }
+      try{ await navigator.serviceWorker.register('./sw.js', { scope: './' }); console.log('sw registered'); }
       catch(e){console.warn('sw failed',e)}
     }
+    // If opened via deep-link (hash or ?card=), attempt playback
+    try{ handleDeepLinkIfPresent(); }catch(e){}
     // Setup NDEFReader instance when available
     if('NDEFReader' in window){ ndef = new NDEFReader(); }
     else document.getElementById('scanBtn').disabled = true;
@@ -56,6 +61,7 @@
     createCardBtn.addEventListener('click',createCardFromInput);
     startWriteBtn.addEventListener('click',startWriteFlow);
     scanBtn.addEventListener('click',startScan);
+    const testTagBtn = document.getElementById('testTagBtn'); if(testTagBtn) testTagBtn.addEventListener('click',startTestTag);
     playBtn.addEventListener('click',togglePlay);
     prevBtn.addEventListener('click',playPrev);
     nextBtn.addEventListener('click',playNext);
@@ -64,7 +70,30 @@
     seek.addEventListener('input',onSeek);
     volume.addEventListener('input',onVolumeChange);
     darkToggle.addEventListener('click',toggleDark);
+    // Deep link overlay play button
+    const deepPlayBtn = document.getElementById('deepPlayBtn'); if(deepPlayBtn) deepPlayBtn.addEventListener('click',async ()=>{ try{ await audio.play(); hideDeepPlayOverlay(); }catch(e){ /* user needs to interact */ } });
   }
+
+  // Deep-link handling: if app opened with #card=<id> or ?card=<id>, load and attempt playback
+  async function handleDeepLinkIfPresent(){
+    // parse hash first, then query
+    const hash = location.hash || '';
+    let id = null;
+    if(hash.startsWith('#card=')) id = decodeURIComponent(hash.slice(6));
+    if(!id){ const qp = new URLSearchParams(location.search); if(qp.has('card')) id = qp.get('card'); }
+    if(!id) return;
+    const c = await DB.getCard(id);
+    if(!c) return;
+    // try to auto-play
+    await startCardPlayback(c);
+    // if autoplay blocked, show big play overlay
+    if(!isPlaying){ showDeepPlayOverlay(); }
+  }
+
+  function showDeepPlayOverlay(){
+    const ov = document.getElementById('deepPlayOverlay'); if(!ov) return; ov.style.display='flex';
+  }
+  function hideDeepPlayOverlay(){ const ov = document.getElementById('deepPlayOverlay'); if(!ov) return; ov.style.display='none'; }
 
   async function refreshAll(){
     tracks = await DB.listTracks();
@@ -109,6 +138,7 @@
       el.innerHTML = `<div style="display:flex;justify-content:space-between"><strong>${escapeHtml(c.name)}</strong>
         <div><button data-id="${c.id}" class="btn small playCard">▶</button>
         <button data-id="${c.id}" class="btn small editCard">✏️</button>
+        <button data-id="${c.id}" class="btn small copyLink">🔗</button>
         <button data-id="${c.id}" class="btn small delCard">🗑</button></div></div>
         <div class="small">${c.tracks.length} tracks</div>`;
       cardsList.appendChild(el);
@@ -117,6 +147,13 @@
     cardsList.querySelectorAll('.playCard').forEach(b=>b.addEventListener('click',async ev=>{const cid=ev.target.dataset.id;const c=await DB.getCard(cid);startCardPlayback(c);}));
     cardsList.querySelectorAll('.delCard').forEach(b=>b.addEventListener('click',async ev=>{if(confirm('Delete card?')){await DB.deleteCard(ev.target.dataset.id);await refreshAll();}}));
     cardsList.querySelectorAll('.editCard').forEach(b=>b.addEventListener('click',ev=>editCard(ev.target.dataset.id)));
+    // copy link handlers
+    cardsList.querySelectorAll('.copyLink').forEach(b=>b.addEventListener('click',async ev=>{
+      const id = ev.target.dataset.id;
+      const url = buildCardUrl(id);
+      try{ await navigator.clipboard.writeText(url); alert('Link copied to clipboard'); }
+      catch(e){ prompt('Copy this link', url); }
+    }));
   }
 
   function populateWriteSelect(){
@@ -153,8 +190,14 @@
     if(!cardId){ writeStatus.textContent='Select a card to write.'; return }
     writeStatus.textContent='Tap a blank card to write...';
     try{
-      // The write will prompt user to present the tag
-      await ndef.write({records:[{recordType:'text',data:cardId}]});
+      // Compose payload: default to URL deep-link for best cross-platform behaviour
+      const writeType = (document.getElementById('writeTypeSelect')||{}).value || 'url';
+      if(writeType === 'url'){
+        const appUrl = buildCardUrl(cardId);
+        await ndef.write({records:[{recordType:'url',data:appUrl}]});
+      }else{
+        await ndef.write({records:[{recordType:'text',data:cardId}]});
+      }
       writeStatus.textContent='Write successful ✅';
       // small success animation - flash
       setTimeout(()=>writeStatus.textContent='',2000);
@@ -192,15 +235,30 @@
   }
 
   async function handleCardTap(text){
-    // expect text to be stored card id or url like card://id
-    let id = text;
-    if(text.startsWith('card://')) id = text.slice(7);
+    // Accept various payload formats: card://id, plain id, or a URL containing #card= or ?card=
+    let id = null;
+    if(!text) return;
+    const t = text.trim();
+    if(t.startsWith('card://')) id = t.slice(7);
+    else if(t.startsWith('http://') || t.startsWith('https://')){
+      try{
+        const u = new URL(t);
+        const qp = new URLSearchParams(u.search);
+        if(qp.has('card')) id = qp.get('card');
+        else if(u.hash && u.hash.includes('card=')){ const hp = new URLSearchParams(u.hash.replace(/^#/,'')); if(hp.has('card')) id = hp.get('card'); }
+        else {
+          const parts = u.pathname.split('/').filter(Boolean);
+          if(parts.length) id = parts[parts.length-1];
+        }
+      }catch(e){ /* not a URL */ }
+    } else {
+      id = t;
+    }
+
+    if(!id){ alert('Card not recognized: '+text); return }
     // find card
     const c = await DB.getCard(id);
-    if(!c){
-      alert('Card not recognized: '+id);
-      return;
-    }
+    if(!c){ alert('Card not recognized: '+id); return; }
     // If a card tapped, start playback immediately, stopping any existing
     startCardPlayback(c);
   }
