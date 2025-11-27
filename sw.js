@@ -1,8 +1,7 @@
 // sw.js — service worker for offline caching
-const CACHE_NAME = 'nfc-audio-shell-v1';
+// Bumping version to v2 to force update
+const CACHE_NAME = 'nfc-audio-shell-v2';
 
-// Build asset URLs relative to the service worker scope so the cache works when hosted under
-// a subpath (GitHub Pages repo pages). `self.registration.scope` includes the origin+path.
 function assetUrl(path){ return new URL(path, self.registration.scope).href; }
 
 const ASSETS = [
@@ -21,23 +20,25 @@ self.addEventListener('install', ev=>{
 });
 
 self.addEventListener('activate', ev=>{
-  ev.waitUntil(self.clients.claim());
+  // Clean up old caches (v1)
+  ev.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.map(key => {
+        if (key !== CACHE_NAME) return caches.delete(key);
+      })
+    )).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', ev=>{
   const reqUrl = ev.request.url;
-  // Navigation requests (user entering URLs / clicking links) should return index.html from cache when offline
   if(ev.request.mode === 'navigate'){
     ev.respondWith(fetch(ev.request).catch(()=>caches.match(assetUrl('./index.html'))));
     return;
   }
-
-  // For resources that are part of the shell, try network then cache fallback
   if(ASSETS.includes(reqUrl)){
     ev.respondWith(fetch(ev.request).catch(()=>caches.match(reqUrl)));
     return;
   }
-
-  // Default: try network, fallback to cache
   ev.respondWith(fetch(ev.request).catch(()=>caches.match(ev.request)));
 });
